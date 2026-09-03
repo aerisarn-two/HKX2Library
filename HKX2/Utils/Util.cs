@@ -35,7 +35,7 @@ namespace HKX2
 
         public static void WriteHKX(IHavokObject root, HKXHeader header, string filePath)
         {
-            using FileStream stream = File.OpenRead(filePath);
+            using FileStream stream = File.Create(filePath);
             WriteHKX(root, header, stream);
         }
 
@@ -66,7 +66,7 @@ namespace HKX2
 
         public static void WriteXml(IHavokObject root, HKXHeader header, string filePath)
         {
-            using FileStream stream = File.OpenRead(filePath);
+            using FileStream stream = File.Create(filePath);
             WriteXml(root, header, stream);
         }
 

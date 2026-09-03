@@ -110,6 +110,50 @@ namespace HKX2.Tests
             Assert.AreEqual("", variant.m_className, "empty string came back as something else");
         }
 
+        /// <summary>
+        /// The write-to-path overloads opened the destination with File.OpenRead,
+        /// so writing a file to disk could never have worked.
+        /// </summary>
+        [TestMethod]
+        public void WriteHkxToFilePathProducesAReadableFile()
+        {
+            var root = MakeRoot(name: "test", className: "hkRootLevelContainer");
+            var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".hkx");
+
+            try
+            {
+                Util.WriteHKX(root, HKXHeader.SkyrimSE(), path);
+
+                Assert.IsTrue(new FileInfo(path).Length > 0, "nothing was written");
+                var read = (hkRootLevelContainer)Util.ReadHKX(path);
+                Assert.AreEqual("test", read.m_namedVariants.Single()!.m_name);
+            }
+            finally
+            {
+                File.Delete(path);
+            }
+        }
+
+        [TestMethod]
+        public void WriteXmlToFilePathProducesAReadableFile()
+        {
+            var root = MakeRoot(name: "test", className: "hkRootLevelContainer");
+            var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".xml");
+
+            try
+            {
+                Util.WriteXml(root, HKXHeader.SkyrimSE(), path);
+
+                Assert.IsTrue(new FileInfo(path).Length > 0, "nothing was written");
+                var read = (hkRootLevelContainer)Util.ReadXml(path, HKXHeader.SkyrimSE());
+                Assert.AreEqual("test", read.m_namedVariants.Single()!.m_name);
+            }
+            finally
+            {
+                File.Delete(path);
+            }
+        }
+
         private static hkRootLevelContainer MakeRoot(string? name, string className) => new()
         {
             m_namedVariants = new List<hkRootLevelContainerNamedVariant?>
