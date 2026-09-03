@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Globalization;
+using System.Xml;
 using System.Linq;
 using System.Numerics;
 using System.Xml.Linq;
@@ -48,7 +49,18 @@ namespace HKX2
             var hkrootcontainer = WriteNode(rootObject, index);
             rootObject.WriteXml(this, hkrootcontainer);
 
-            _document.Save(stream);
+            // NewLineHandling.Entitize writes a carriage return as &#xD; instead of
+            // letting the xml processor normalise it away, so strings that carry
+            // one (vanilla annotations such as "FootBack\r\n") survive a round trip.
+            var settings = new XmlWriterSettings
+            {
+                Indent = true,
+                Encoding = System.Text.Encoding.ASCII,
+                NewLineHandling = NewLineHandling.Entitize,
+            };
+
+            using var writer = XmlWriter.Create(stream, settings);
+            _document.Save(writer);
         }
 
         private XElement WriteNode<T>(T hkobject, string nodeName) where T : IHavokObject

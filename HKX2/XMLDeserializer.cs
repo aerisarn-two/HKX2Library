@@ -248,7 +248,7 @@ namespace HKX2
             // if not exist it is SERIALIZE_IGNORED flag (null)
             var ele = GetPropertyElement(element, name);
             if (ele is null || ele.Value == "\u2400") return null;
-            return ele.Value.Trim();
+            return ele.Value;
         }
 
         public bool ReadBoolean(XElement element, string name)
@@ -434,7 +434,7 @@ namespace HKX2
                 return Array.Empty<string>();
 
             return ele.Elements("hkcstring")
-                      .Select(ele => ele.Value == "\u2400" ? null : ele.Value.Trim())
+                      .Select(ele => ele.Value == "\u2400" ? null : ele.Value)
                       .ToList();
         }
         // Matches XmlSerializer.F: parse in a fixed culture so xml written on one

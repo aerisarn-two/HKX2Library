@@ -216,7 +216,10 @@ namespace HKX2
             br.StepIn(f.Dst);
             var ret = br.ReadASCII();
             br.StepOut();
-            return ret.Trim();
+            // No trimming: ReadASCII already stops at the terminator, so any
+            // surrounding whitespace is part of the string. Vanilla animation
+            // annotations such as "FootBack\r\n" rely on that.
+            return ret;
         }
 
         public List<string> ReadStringPointerArray(BinaryReaderEx br)

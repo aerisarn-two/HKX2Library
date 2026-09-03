@@ -198,6 +198,58 @@ namespace HKX2.Tests
             }
         }
 
+        /// <summary>
+        /// A string is whatever sits between the pointer and its terminator.
+        /// ReadStringPointer trimmed it, which quietly rewrote vanilla animation
+        /// annotations such as "FootBack\r\n" to "FootBack" and, in one file,
+        /// shortened the packfile because the trimmed string needed less padding.
+        /// </summary>
+        [TestMethod]
+        public void StringPointerKeepsSurroundingWhitespaceThroughHkx()
+        {
+            foreach (var value in WhitespaceStrings)
+            {
+                var bytes = Util.WriteHKX(MakeRoot(value, ""), HKXHeader.SkyrimSE());
+                var read = (hkRootLevelContainer)Util.ReadHKX(bytes);
+
+                Assert.AreEqual(value, read.m_namedVariants.Single()!.m_name,
+                    $"{Escape(value)} did not survive the hkx round trip");
+            }
+        }
+
+        /// <summary>
+        /// Unlike the matrix padding lanes, xml can represent these strings, so it
+        /// has to. A carriage return has to be entitized on the way out, otherwise
+        /// the xml processor normalizes it away before anyone can read it back.
+        /// </summary>
+        [TestMethod]
+        public void StringPointerKeepsSurroundingWhitespaceThroughXml()
+        {
+            foreach (var value in WhitespaceStrings)
+            {
+                MemoryStream ms = new();
+                Util.WriteXml(MakeRoot(value, ""), HKXHeader.SkyrimSE(), ms);
+                ms.Position = 0;
+
+                var read = (hkRootLevelContainer)Util.ReadXml(ms, HKXHeader.SkyrimSE());
+
+                Assert.AreEqual(value, read.m_namedVariants.Single()!.m_name,
+                    $"{Escape(value)} did not survive the xml round trip");
+            }
+        }
+
+        private static readonly string[] WhitespaceStrings =
+        {
+            "FootBack\r\n",   // as found in vanilla cow and horse animations
+            "FootFront",
+            "trailing ",
+            " leading",
+            "inner space",
+        };
+
+        private static string Escape(string s) =>
+            "\"" + s.Replace("\r", "\\r").Replace("\n", "\\n") + "\"";
+
         private static hkRootLevelContainer MakeRoot(string? name, string className) => new()
         {
             m_namedVariants = new List<hkRootLevelContainerNamedVariant?>

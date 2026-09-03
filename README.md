@@ -17,10 +17,12 @@ This fork modified classes for Skyrim SE hkx file.
 - ~Ragdoll files (.hkrg) differ from vanilla files because of different fixup ordering. This issue shouldn't affect functionality.~
 - can't deserialize some old FNIS generated hkx files due to malformed(?) `__classname__` or virtualFixup section or wrong assigned member (`hkbBlendingTransitionEffec` assign to `hkbStateMachineTransitionInfoArray`)
 - Re-serializing a vanilla file is not always byte-identical. Over the Skyrim SE
-  `meshes` corpus (7699 files) 7398 (96.1%) come back byte for byte. The
-  remainder differ only in layout, not in data: the `__classnames__` table and
-  the objects inside the data section are emitted in the library's own discovery
-  order rather than Havok's, which shifts every offset after them.
+  `meshes` corpus (7699 files) 7419 (96.4%) come back byte for byte. Every one
+  of the remaining 280 differs for the same reason, and it is layout rather than
+  data: objects are serialized in the library's own traversal order rather than
+  Havok's. That order decides the `__classnames__` table (which is built lazily
+  as objects are written) and the order of the fixup tables, so every offset
+  after the first divergence shifts.
 - Xml export is lossy for the unused `w` lane of every 3-float group, because
   Havok's own xml format has no slot for it: the writer builds every matrix type
   out of `(%f %f %f)` and `(%f %f %f %f)`, so `hkMatrix3` is 9 floats,
