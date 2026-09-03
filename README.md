@@ -45,6 +45,13 @@ Byte equality is what catches read-side data loss, which the deep comparison
 structurally cannot see: a lossy reader damages both sides of the comparison
 identically, so the graphs still match while the bytes drift.
 
+### Releases
+
+Tagging a commit `vMAJOR.MINOR.PATCH` builds, tests and publishes the library as
+a NuGet package on GitHub Packages, plus a GitHub release carrying `HKX2.dll`.
+See [README-ci.md](README-ci.md) for how to consume the package and what CI does
+and does not cover.
+
 ### Usage
 
 `git submodule add https://github.com/ret2end/HKX2Library <your-repo-dir>/some/path/HKX2Library`

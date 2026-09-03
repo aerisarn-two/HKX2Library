@@ -1,0 +1,147 @@
+#
+# Builds HKX2, runs the tests, and publishes the library as a NuGet package on
+# GitHub Packages plus a GitHub release carrying the assembly.
+#
+# Tagging is the trigger, so build and release are one workflow: two workflows on
+# the same tag would build the same assembly twice and could publish a different
+# one from the one that was tested.
+#
+# Use workflow_dispatch to build, test and pack without publishing anything.
+#
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  # The library targets net7.0, which no SDK ships a runtime for any more. The
+  # reference assemblies still come down as a package, so it builds; only the
+  # tests need a runtime, and they target net9.0.
+  DOTNET_VERSION: 9.0.x
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write   # to create the release
+      packages: write   # to publish to GitHub Packages
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Work out the version
+        id: version
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF#refs/tags/v}"
+
+            # Reject a malformed tag here rather than after a full build, which
+            # is where dotnet pack would otherwise notice.
+            semver='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+            if [[ ! "$version" =~ $semver ]]; then
+              echo "tag '${GITHUB_REF#refs/tags/}' is not a version." \
+                   "Expected vMAJOR.MINOR.PATCH, optionally with a prerelease" \
+                   "suffix, e.g. v1.2.3 or v1.2.3-rc.1" >&2
+              exit 1
+            fi
+
+            publish=true
+          else
+            # Not a release: still pack, so packaging breakage shows up here
+            # rather than on the tag, but do not push it anywhere.
+            version="0.0.0-ci.${GITHUB_RUN_NUMBER}"
+            publish=false
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "version $version, publish $publish"
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: >
+          dotnet build --no-restore -c Release
+          -p:Version=${{ steps.version.outputs.version }}
+          -p:RepositoryUrl=https://github.com/${{ github.repository }}
+
+      #
+      # The corpus tests need a directory of real .hkx files, which is extracted
+      # game data and cannot live here or on a runner. Those report Inconclusive
+      # and the rest of the suite still runs, so this catches the kind of
+      # breakage that does not need the corpus. See README-ci.md.
+      #
+      - name: Test
+        run: dotnet test --no-build -c Release --verbosity normal
+
+      - name: Pack
+        run: >
+          dotnet pack HKX2/HKX2.csproj --no-build -c Release
+          -p:Version=${{ steps.version.outputs.version }}
+          -p:RepositoryUrl=https://github.com/${{ github.repository }}
+          -o artifacts
+
+      # Fail here rather than at the release step, where an empty upload would
+      # be reported as an unmatched glob and take longer to read.
+      - name: Check the artifacts
+        run: |
+          set -euo pipefail
+          ls -l HKX2/bin/Release/net7.0/HKX2.dll
+          ls -l artifacts/*.nupkg
+          test "$(ls artifacts/*.nupkg | wc -l)" -eq 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HKX2-${{ steps.version.outputs.version }}
+          path: |
+            HKX2/bin/Release/net7.0/HKX2.dll
+            HKX2/bin/Release/net7.0/HKX2.pdb
+            artifacts/*.nupkg
+          if-no-files-found: error
+
+      #
+      # GITHUB_TOKEN is enough for GitHub Packages, so there is no secret to
+      # configure. Consumers need a nuget.config pointing at this feed and a PAT
+      # with read:packages -- see README-ci.md.
+      #
+      - name: Publish to GitHub Packages
+        if: steps.version.outputs.publish == 'true'
+        run: >
+          dotnet nuget push artifacts/*.nupkg
+          --source https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
+          --api-key ${{ secrets.GITHUB_TOKEN }}
+          --skip-duplicate
+
+      #
+      # Created after the package push, so a failed push never leaves a release
+      # advertising a version that is not on the feed. Carries the same assembly
+      # the tests ran against and the same .nupkg that was published.
+      #
+      - name: Create the GitHub release
+        if: steps.version.outputs.publish == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: HKX2 ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          fail_on_unmatched_files: true
+          files: |
+            HKX2/bin/Release/net7.0/HKX2.dll
+            HKX2/bin/Release/net7.0/HKX2.pdb
+            artifacts/*.nupkg

@@ -5,6 +5,24 @@
         <Nullable>enable</Nullable>
     </PropertyGroup>
 
+    <PropertyGroup>
+        <PackageId>HKX2</PackageId>
+        <Authors>katalash, krenyy, ret2end, Aerisarn</Authors>
+        <Description>Havok packfile deserialization and serialization for Skyrim SE .hkx files, including behaviors, skeletons and animations, with xml export. A standalone fork of Katalash's HKX2.</Description>
+        <PackageTags>havok;hkx;skyrim;packfile;serialization;behavior;animation</PackageTags>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <RepositoryType>git</RepositoryType>
+        <RepositoryUrl>https://github.com/aerisarn-two/HKX2Library</RepositoryUrl>
+
+        <!-- Overridden by the release workflow from the tag. -->
+        <Version>0.0.0</Version>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <None Include="../README.md" Pack="true" PackagePath="/" />
+    </ItemGroup>
+
     <ItemGroup>
       <Compile Remove="Autogen\Xml\**" />
       <EmbeddedResource Remove="Autogen\Xml\**" />
