@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Globalization;
 using System.Linq;
 using System.Numerics;
 using System.Xml;
@@ -319,7 +320,7 @@ namespace HKX2
             var ele = GetPropertyElement(element, name);
             if (ele is null)
                 return new Half();
-            return Half.Parse(ele.Value);
+            return Half.Parse(ele.Value, CultureInfo.InvariantCulture);
         }
 
         public float ReadSingle(XElement element, string name)
@@ -327,7 +328,7 @@ namespace HKX2
             var ele = GetPropertyElement(element, name);
             if (ele is null)
                 return new float();
-            return float.Parse(ele.Value);
+            return ParseFloat(ele.Value);
         }
 
         private static readonly char[] SplitCharList = { '(', ')', ',', ' ', '\n', '\r', '\t' };
@@ -342,7 +343,7 @@ namespace HKX2
             if (ele is null)
                 return new Vector4();
 
-            var vec = Normalize(ele.Value).Select(float.Parse).ToArray();
+            var vec = Normalize(ele.Value).Select(ParseFloat).ToArray();
             return new Vector4(vec[0], vec[1], vec[2], vec[3]);
         }
 
@@ -352,7 +353,7 @@ namespace HKX2
             if (ele is null)
                 return new Matrix4x4();
 
-            var mat3 = Normalize(ele.Value).Select(float.Parse).ToArray();
+            var mat3 = Normalize(ele.Value).Select(ParseFloat).ToArray();
             return new Matrix4x4(mat3[0], mat3[1], mat3[2], 0,
                                  mat3[3], mat3[4], mat3[5], 0,
                                  mat3[6], mat3[7], mat3[8], 0,
@@ -365,7 +366,7 @@ namespace HKX2
             if (ele is null)
                 return new Matrix4x4();
 
-            var mat4 = Normalize(ele.Value).Select(float.Parse).ToArray();
+            var mat4 = Normalize(ele.Value).Select(ParseFloat).ToArray();
             return new Matrix4x4(mat4[0], mat4[1], mat4[2], mat4[3],
                                  mat4[4], mat4[5], mat4[6], mat4[7],
                                  mat4[8], mat4[9], mat4[10], mat4[11],
@@ -378,7 +379,7 @@ namespace HKX2
             if (ele is null)
                 return new Matrix4x4();
 
-            var trans = Normalize(ele.Value).Select(float.Parse).ToArray();
+            var trans = Normalize(ele.Value).Select(ParseFloat).ToArray();
             return new Matrix4x4(trans[0], trans[1], trans[2], 0,
                                  trans[3], trans[4], trans[5], 0,
                                  trans[6], trans[7], trans[8], 0,
@@ -396,7 +397,7 @@ namespace HKX2
             if (ele == null)
                 return new Matrix4x4();
 
-            var qs = Normalize(ele.Value).Select(float.Parse).ToArray();
+            var qs = Normalize(ele.Value).Select(ParseFloat).ToArray();
             return new Matrix4x4(qs[0], qs[1], qs[2], 0,
                                  qs[3], qs[4], qs[5], qs[6],
                                  qs[7], qs[8], qs[9], 0,
@@ -407,7 +408,7 @@ namespace HKX2
         {
             var ele = GetPropertyElement(element, name);
             if (ele == null) return new Quaternion();
-            var quant = Normalize(ele.Value).Select(float.Parse).ToArray();
+            var quant = Normalize(ele.Value).Select(ParseFloat).ToArray();
             return new Quaternion(quant[0], quant[1], quant[2], quant[3]);
         }
 
@@ -433,9 +434,13 @@ namespace HKX2
                 return Array.Empty<string>();
 
             return ele.Elements("hkcstring")
-                      .Select(ele => ele.Value.Trim())
+                      .Select(ele => ele.Value == "\u2400" ? null : ele.Value.Trim())
                       .ToList();
         }
+        // Matches XmlSerializer.F: parse in a fixed culture so xml written on one
+        // machine reads back identically on another.
+        private static float ParseFloat(string value) => float.Parse(value, CultureInfo.InvariantCulture);
+
         private static readonly char[] SplitSpaceList = { ' ', '\n', '\r', '\t' };
         public IList<bool> ReadBooleanArray(XElement element, string name)
         {
@@ -555,7 +560,7 @@ namespace HKX2
                 return Array.Empty<float>();
 
             return ele.Value.Split(SplitSpaceList, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                            .Select(float.Parse)
+                            .Select(ParseFloat)
                             .ToList();
         }
 
@@ -571,7 +576,7 @@ namespace HKX2
             if (count == 0)
                 return Array.Empty<Vector4>();
 
-            var vec4Arr = Normalize(ele.Value).Select(float.Parse).Chunk(4);
+            var vec4Arr = Normalize(ele.Value).Select(ParseFloat).Chunk(4);
             if (vec4Arr.Count() != count)
                 throw new Exception($"Vector4 element mismatch. at Line: {((IXmlLineInfo)element)?.LineNumber ?? -1}, Property: {name}");
 
@@ -591,7 +596,7 @@ namespace HKX2
             if (count == 0)
                 return Array.Empty<Matrix4x4>();
 
-            var mat3Arr = Normalize(ele.Value).Select(float.Parse).Chunk(9);
+            var mat3Arr = Normalize(ele.Value).Select(ParseFloat).Chunk(9);
             if (mat3Arr.Count() != count)
                 throw new Exception($"Matrix3 element mismatch. at Line: {((IXmlLineInfo)element)?.LineNumber ?? -1}, Property: {name}");
 
@@ -613,7 +618,7 @@ namespace HKX2
             if (count == 0)
                 return Array.Empty<Matrix4x4>();
 
-            var mat4Arr = Normalize(ele.Value).Select(float.Parse).Chunk(16);
+            var mat4Arr = Normalize(ele.Value).Select(ParseFloat).Chunk(16);
             if (mat4Arr.Count() != count)
                 throw new Exception($"Matrix4 element mismatch. at Line: {((IXmlLineInfo)element)?.LineNumber ?? -1}, Property: {name}");
 
@@ -635,7 +640,7 @@ namespace HKX2
             if (count == 0)
                 return Array.Empty<Matrix4x4>();
 
-            var transArr = Normalize(ele.Value).Select(float.Parse).Chunk(12);
+            var transArr = Normalize(ele.Value).Select(ParseFloat).Chunk(12);
             if (transArr.Count() != count)
                 throw new Exception($"Transform element mismatch. at Line: {((IXmlLineInfo)element)?.LineNumber ?? -1}, Property: {name}");
 
@@ -662,7 +667,7 @@ namespace HKX2
             if (count == 0)
                 return Array.Empty<Matrix4x4>();
 
-            var qsArr = Normalize(ele.Value).Select(float.Parse).Chunk(10);
+            var qsArr = Normalize(ele.Value).Select(ParseFloat).Chunk(10);
             if (qsArr.Count() != count)
                 throw new Exception($"QSTransform element mismatch. at Line: {((IXmlLineInfo)element)?.LineNumber ?? -1}, Property: {name}");
 
@@ -684,7 +689,7 @@ namespace HKX2
             if (count == 0)
                 return Array.Empty<Quaternion>();
 
-            var quantArr = Normalize(ele.Value).Select(float.Parse).Chunk(4);
+            var quantArr = Normalize(ele.Value).Select(ParseFloat).Chunk(4);
             if (quantArr.Count() != count)
                 throw new Exception($"Quaternion element missmatch. at Line: {((IXmlLineInfo)element)?.LineNumber ?? -1}, Property: {name}");
 
@@ -858,7 +863,7 @@ namespace HKX2
             if (eles.Length != length)
                 throw new Exception($"Content's elements mismatch property require {length} at Line: {((IXmlLineInfo)element)?.LineNumber ?? -1}, Property: {name}, require: {length} got: {eles.Length}");
 
-            return eles.Select(float.Parse).ToArray();
+            return eles.Select(ParseFloat).ToArray();
         }
 
         public Vector4[] ReadVector4CStyleArray(XElement element, string name, short length)
@@ -867,7 +872,7 @@ namespace HKX2
             if (ele is null)
                 return new Vector4[length];
 
-            var vec4arr = Normalize(ele.Value).Select(float.Parse).Chunk(4);
+            var vec4arr = Normalize(ele.Value).Select(ParseFloat).Chunk(4);
             if (vec4arr.Count() != length)
                 throw new Exception($"Content's elements mismatch property require {length} at Line: {((IXmlLineInfo)element)?.LineNumber ?? -1}, Property: {name}");
 
@@ -881,7 +886,7 @@ namespace HKX2
             if (ele is null)
                 return new Matrix4x4[length];
 
-            var arr = Normalize(ele.Value).Select(float.Parse).Chunk(9);
+            var arr = Normalize(ele.Value).Select(ParseFloat).Chunk(9);
             if (arr.Count() != length)
                 throw new Exception($"Content's elements mismatch property require {length} at Line: {((IXmlLineInfo)element)?.LineNumber ?? -1}, Property: {name}, require: {length} got: {arr.Count()}");
 
@@ -897,7 +902,7 @@ namespace HKX2
             if (ele is null)
                 return new Matrix4x4[length];
 
-            var arr = Normalize(ele.Value).Select(float.Parse).Chunk(16);
+            var arr = Normalize(ele.Value).Select(ParseFloat).Chunk(16);
             if (arr.Count() != length)
                 throw new Exception($"Content's elements mismatch property require {length} at Line: {((IXmlLineInfo)element)?.LineNumber ?? -1}, Property: {name}, require: {length} got: {arr.Count()}");
 
@@ -913,7 +918,7 @@ namespace HKX2
             if (ele is null)
                 return new Matrix4x4[length];
 
-            var arr = Normalize(ele.Value).Select(float.Parse).Chunk(12);
+            var arr = Normalize(ele.Value).Select(ParseFloat).Chunk(12);
             if (arr.Count() != length)
                 throw new Exception($"Content's elements mismatch property require {length} at Line: {((IXmlLineInfo)element)?.LineNumber ?? -1}, Property: {name}, require: {length} got: {arr.Count()}");
 
@@ -934,7 +939,7 @@ namespace HKX2
             if (ele is null)
                 return new Matrix4x4[length];
 
-            var arr = Normalize(ele.Value).Select(float.Parse).Chunk(10);
+            var arr = Normalize(ele.Value).Select(ParseFloat).Chunk(10);
             if (arr.Count() != length)
                 throw new Exception($"Content's elements mismatch property require {length} at Line: {((IXmlLineInfo)element)?.LineNumber ?? -1}, Property: {name}, require: {length} got: {arr.Count()}");
 
@@ -950,7 +955,7 @@ namespace HKX2
             if (ele is null)
                 return new Quaternion[length];
 
-            var arr = Normalize(ele.Value).Select(float.Parse).Chunk(4);
+            var arr = Normalize(ele.Value).Select(ParseFloat).Chunk(4);
             if (arr.Count() != length)
                 throw new Exception($"Content's elements mismatch property require {length} at Line: {((IXmlLineInfo)element)?.LineNumber ?? -1}, Property: {name}, require: {length} got: {arr.Count()}");
 
