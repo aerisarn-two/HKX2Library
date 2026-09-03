@@ -1,87 +1,106 @@
-﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Diagnostics;
 
 namespace HKX2.Tests
 {
+    /// <summary>
+    /// Round-trip tests over the whole .hkx corpus. See <see cref="Corpus"/> for
+    /// how the corpus is located.
+    /// </summary>
     [TestClass]
     public class CompareTests
     {
+        private static HKXHeader Header => HKXHeader.SkyrimSE();
+
+        /// <summary>
+        /// hkx -> object graph -> hkx -> object graph must produce an equal graph.
+        /// </summary>
         [TestMethod]
-        public void XmlToXmlDeepCompare()
+        public void HkxToHkxDeepCompare()
         {
-            var hkxDir = new DirectoryInfo("./xml");
-            foreach (var item in Directory.EnumerateFiles(hkxDir.ToString(), "*.xml", SearchOption.AllDirectories))
+            var files = Corpus.RequireFiles();
+            var failures = new FailureLog();
+
+            foreach (var item in files)
             {
-                Trace.WriteLine(item);
-                var root = Util.ReadXml(item, HKXHeader.SkyrimSE());
+                try
+                {
+                    var root = Util.ReadHKX(item);
+                    var bytes = Util.WriteHKX(root, Header);
+                    var root2 = Util.ReadHKX(bytes);
 
-                MemoryStream ms = new();
-                Util.WriteXml(root, HKXHeader.SkyrimSE(), ms);
-                ms.Position = 0;
-
-                var root2 = Util.ReadXml(ms, HKXHeader.SkyrimSE());
-
-                Assert.IsTrue(root.Equals(root2));
+                    if (!root.Equals(root2))
+                        failures.Add(item, "deep compare failed after hkx round trip");
+                }
+                catch (Exception ex)
+                {
+                    failures.Add(item, $"{ex.GetType().Name}: {ex.Message}");
+                }
             }
 
+            failures.AssertNone(files.Count, nameof(HkxToHkxDeepCompare));
         }
 
+        /// <summary>
+        /// hkx -> object graph -> xml -> object graph must produce an equal graph.
+        /// </summary>
         [TestMethod]
-        public void HhkToHkxDeepCompare()
+        public void HkxToXmlToHkxDeepCompare()
         {
-            var hkxDir = new DirectoryInfo("./hkx");
-            foreach (var item in Directory.EnumerateFiles(hkxDir.ToString(), "*.hkx", SearchOption.AllDirectories))
+            var files = Corpus.RequireFiles();
+            var failures = new FailureLog();
+
+            foreach (var item in files)
             {
-                Trace.WriteLine(item);
-                var root = Util.ReadHKX(item);
+                try
+                {
+                    var root = (hkRootLevelContainer)Util.ReadHKX(item);
 
-                MemoryStream ms = new();
-                Util.WriteHKX(root, HKXHeader.SkyrimSE(), ms);
-                ms.Position = 0;
+                    MemoryStream ms = new();
+                    Util.WriteXml(root, Header, ms);
+                    ms.Position = 0;
 
-                var root2 = Util.ReadHKX(ms);
+                    var root2 = (hkRootLevelContainer)Util.ReadXml(ms, Header);
 
-                Assert.IsTrue(root.Equals(root2));
+                    if (!root.Equals(root2))
+                        failures.Add(item, "deep compare failed after xml round trip");
+                }
+                catch (Exception ex)
+                {
+                    failures.Add(item, $"{ex.GetType().Name}: {ex.Message}");
+                }
             }
 
+            failures.AssertNone(files.Count, nameof(HkxToXmlToHkxDeepCompare));
         }
 
+        /// <summary>
+        /// Serialization must be idempotent: once a file has been through the
+        /// library, writing it again must produce identical bytes. A file that
+        /// keeps changing on every pass indicates non-deterministic layout.
+        /// </summary>
         [TestMethod]
-        public void HhkToXmlToHkxDeepCompare()
+        public void HkxSerializationIsIdempotent()
         {
-            DirectoryInfo hkxDir = new DirectoryInfo("./hkx");
-            foreach (var item in Directory.EnumerateFiles(hkxDir.ToString(), "*.hkx", SearchOption.AllDirectories))
+            var files = Corpus.RequireFiles();
+            var failures = new FailureLog();
+
+            foreach (var item in files)
             {
-                Trace.WriteLine(item);
-                var root = (hkRootLevelContainer)Util.ReadHKX(item);
+                try
+                {
+                    var pass1 = Util.WriteHKX(Util.ReadHKX(item), Header);
+                    var pass2 = Util.WriteHKX(Util.ReadHKX(pass1), Header);
 
-                MemoryStream ms = new();
-                Util.WriteXml(root, HKXHeader.SkyrimSE(), ms);
-                ms.Position = 0;
-
-                var root2 = (hkRootLevelContainer)Util.ReadXml(ms, HKXHeader.SkyrimSE());
-
-                Assert.IsTrue(root.Equals(root2));
+                    if (!pass1.AsSpan().SequenceEqual(pass2))
+                        failures.Add(item, $"second serialization differs ({pass1.Length} vs {pass2.Length} bytes)");
+                }
+                catch (Exception ex)
+                {
+                    failures.Add(item, $"{ex.GetType().Name}: {ex.Message}");
+                }
             }
-        }
 
-        [TestMethod]
-        public void XmlToHkxToXmlDeepCompare()
-        {
-            var xmlDir = new DirectoryInfo("./xml");
-            foreach (var item in Directory.EnumerateFiles(xmlDir.ToString(), "*.xml", SearchOption.AllDirectories))
-            {
-                Trace.WriteLine(item);
-                var root = (hkRootLevelContainer)Util.ReadXml(item, HKXHeader.SkyrimSE());
-
-                MemoryStream ms = new();
-                Util.WriteHKX(root, HKXHeader.SkyrimSE(), ms);
-                ms.Position = 0;
-
-                var root2 = (hkRootLevelContainer)Util.ReadHKX(ms);
-
-                Assert.IsTrue(root.Equals(root2));
-            }
+            failures.AssertNone(files.Count, nameof(HkxSerializationIsIdempotent));
         }
     }
 }
