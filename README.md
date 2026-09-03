@@ -16,6 +16,32 @@ This fork modified classes for Skyrim SE hkx file.
 
 - ~Ragdoll files (.hkrg) differ from vanilla files because of different fixup ordering. This issue shouldn't affect functionality.~
 - can't deserialize some old FNIS generated hkx files due to malformed(?) `__classname__` or virtualFixup section or wrong assigned member (`hkbBlendingTransitionEffec` assign to `hkbStateMachineTransitionInfoArray`)
+- Re-serializing a vanilla file is not always byte-identical. Over the Skyrim SE
+  `meshes` corpus (7699 files) 7118 (92.5%) come back byte for byte. The
+  remainder differ only in layout, not in data:
+  - the `__classnames__` table is emitted in the library's own discovery order
+    rather than Havok's, which shifts the table and every offset after it;
+  - the unused padding lanes of `hkTransform` / `hkQsTransform` (`M14`, `M34`,
+    `M44`) are normalized on read.
+
+### Testing
+
+`HKX2Tests` round-trips a corpus of real `.hkx` files. The corpus is not in the
+repository, so point the tests at one:
+
+```sh
+HKX2_CORPUS=/path/to/extracted/meshes dotnet test
+```
+
+Alternatively put the files in a `corpus` directory next to the test binary.
+Without a corpus the corpus-dependent tests report Inconclusive and the rest of
+the suite still runs.
+
+The suite checks four properties over every file: the object graph survives an
+hkx round trip, it survives an hkx -> xml -> hkx round trip, serialization is
+idempotent, and no file grows. It also ratchets the byte-identical ratio, which
+is what catches read-side data loss - a lossy reader damages both sides of a
+deep comparison identically, so the graphs still match while the bytes drift.
 
 ### Usage
 
@@ -71,7 +97,6 @@ namespace PlatformConverter
 
 ### TODO
 
-- Unit test
 - xml to 64bit hkx?
 - export animation?
 
