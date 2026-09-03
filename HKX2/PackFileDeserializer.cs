@@ -208,7 +208,9 @@ namespace HKX2
             br.AssertUSize(0);
 
             // Do a local fixup lookup
-            if (!_dataSection._localMap.ContainsKey(key)) return string.Empty;
+            // No fixup means a null pointer. Returning string.Empty here would
+            // be written back out as a real empty string by WriteStringPointer.
+            if (!_dataSection._localMap.ContainsKey(key)) return null;
 
             var f = _dataSection._localMap[key];
             br.StepIn(f.Dst);

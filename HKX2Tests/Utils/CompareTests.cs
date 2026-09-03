@@ -102,5 +102,36 @@ namespace HKX2.Tests
 
             failures.AssertNone(files.Count, nameof(HkxSerializationIsIdempotent));
         }
+
+        /// <summary>
+        /// Round-tripping must never make a file grow. Growth means the writer is
+        /// materializing something the reader invented - the null-vs-empty string
+        /// pointer confusion did exactly this, adding an empty string entry plus a
+        /// local fixup for every null string pointer.
+        /// </summary>
+        [TestMethod]
+        public void HkxRoundTripDoesNotGrowFiles()
+        {
+            var files = Corpus.RequireFiles();
+            var failures = new FailureLog();
+
+            foreach (var item in files)
+            {
+                try
+                {
+                    var original = File.ReadAllBytes(item);
+                    var written = Util.WriteHKX(Util.ReadHKX(item), Header);
+
+                    if (written.Length > original.Length)
+                        failures.Add(item, $"grew from {original.Length} to {written.Length} bytes");
+                }
+                catch (Exception ex)
+                {
+                    failures.Add(item, $"{ex.GetType().Name}: {ex.Message}");
+                }
+            }
+
+            failures.AssertNone(files.Count, nameof(HkxRoundTripDoesNotGrowFiles));
+        }
     }
 }

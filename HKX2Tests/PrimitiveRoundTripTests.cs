@@ -68,5 +68,59 @@ namespace HKX2.Tests
 
             Assert.IsTrue(float.IsNaN(read), $"NaN was not preserved (got {read:R})");
         }
+
+        /// <summary>
+        /// A null string pointer and a pointer to an empty string are different
+        /// things on disk, and must stay different through a packfile round trip.
+        /// Reading a missing fixup as string.Empty made the writer materialize a
+        /// real empty-string entry, growing 780 corpus files.
+        /// </summary>
+        [TestMethod]
+        public void NullAndEmptyStringPointersStayDistinctThroughHkx()
+        {
+            var root = MakeRoot(name: null, className: "");
+
+            var bytes = Util.WriteHKX(root, HKXHeader.SkyrimSE());
+            var read = (hkRootLevelContainer)Util.ReadHKX(bytes);
+
+            var variant = read.m_namedVariants.Single();
+            Assert.IsNotNull(variant);
+            Assert.IsNull(variant!.m_name, "null string pointer came back as something else");
+            Assert.AreEqual("", variant.m_className, "empty string came back as something else");
+        }
+
+        /// <summary>
+        /// The same distinction must survive the xml round trip, which encodes
+        /// null as U+2400.
+        /// </summary>
+        [TestMethod]
+        public void NullAndEmptyStringPointersStayDistinctThroughXml()
+        {
+            var root = MakeRoot(name: null, className: "");
+
+            MemoryStream ms = new();
+            Util.WriteXml(root, HKXHeader.SkyrimSE(), ms);
+            ms.Position = 0;
+
+            var read = (hkRootLevelContainer)Util.ReadXml(ms, HKXHeader.SkyrimSE());
+
+            var variant = read.m_namedVariants.Single();
+            Assert.IsNotNull(variant);
+            Assert.IsNull(variant!.m_name, "null string pointer came back as something else");
+            Assert.AreEqual("", variant.m_className, "empty string came back as something else");
+        }
+
+        private static hkRootLevelContainer MakeRoot(string? name, string className) => new()
+        {
+            m_namedVariants = new List<hkRootLevelContainerNamedVariant?>
+            {
+                new()
+                {
+                    m_name = name!,
+                    m_className = className,
+                    m_variant = null,
+                },
+            },
+        };
     }
 }
