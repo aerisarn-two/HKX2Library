@@ -16,9 +16,6 @@ This fork modified classes for Skyrim SE hkx file.
 
 - ~Ragdoll files (.hkrg) differ from vanilla files because of different fixup ordering. This issue shouldn't affect functionality.~
 - can't deserialize some old FNIS generated hkx files due to malformed(?) `__classname__` or virtualFixup section or wrong assigned member (`hkbBlendingTransitionEffec` assign to `hkbStateMachineTransitionInfoArray`)
-- Re-serializing a vanilla file is not always byte-identical. Over the Skyrim SE
-  `meshes` corpus (7699 files) 7683 (99.8%) come back byte for byte. The
-  remaining 16 differ in layout, not in data.
 - Xml export is lossy for the unused `w` lane of every 3-float group, because
   Havok's own xml format has no slot for it: the writer builds every matrix type
   out of `(%f %f %f)` and `(%f %f %f %f)`, so `hkMatrix3` is 9 floats,
@@ -38,11 +35,15 @@ Alternatively put the files in a `corpus` directory next to the test binary.
 Without a corpus the corpus-dependent tests report Inconclusive and the rest of
 the suite still runs.
 
-The suite checks four properties over every file: the object graph survives an
-hkx round trip, it survives an hkx -> xml -> hkx round trip, serialization is
-idempotent, and no file grows. It also ratchets the byte-identical ratio, which
-is what catches read-side data loss - a lossy reader damages both sides of a
-deep comparison identically, so the graphs still match while the bytes drift.
+The suite checks, over every file: re-serializing reproduces the original bytes
+exactly, the object graph survives an hkx round trip, the xml representation is
+stable across a round trip, serialization is idempotent, and no file changes
+length. All 7699 files of the Skyrim SE `meshes` corpus round trip byte for
+byte.
+
+Byte equality is what catches read-side data loss, which the deep comparison
+structurally cannot see: a lossy reader damages both sides of the comparison
+identically, so the graphs still match while the bytes drift.
 
 ### Usage
 

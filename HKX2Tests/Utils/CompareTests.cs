@@ -122,24 +122,18 @@ namespace HKX2.Tests
         }
 
         /// <summary>
-        /// Re-serializing a vanilla file should reproduce it byte for byte.
+        /// Re-serializing a vanilla file reproduces it byte for byte.
         ///
-        /// It does not quite hold for the whole corpus: a handful of files still
-        /// differ in layout rather than in data.
-        ///
-        /// So this is a ratchet rather than an equality check. It exists to catch
-        /// read-side data loss, which is otherwise invisible to the deep-compare
-        /// tests above: a lossy read corrupts both sides of the comparison
-        /// identically, so the graphs still match while the bytes drift. When
-        /// ReadSingle rounded floats to 6 decimals this figure was 3%.
+        /// This is the check that catches read-side data loss, which the
+        /// deep-compare tests structurally cannot see: a lossy reader damages
+        /// both sides of the comparison identically, so the graphs still match
+        /// while the bytes drift. When ReadSingle rounded floats to 6 decimals
+        /// only 3% of the corpus survived this.
         /// </summary>
         [TestMethod]
-        public void HkxRoundTripIsByteIdenticalForMostOfCorpus()
+        public void HkxRoundTripIsByteIdentical()
         {
-            const double MinimumRatio = 0.99;
-
             var files = Corpus.RequireFiles();
-            int identical = 0, grew = 0, shrank = 0, sameLengthDiff = 0;
             var failures = new FailureLog();
 
             foreach (var item in files)
@@ -149,10 +143,12 @@ namespace HKX2.Tests
                     var original = File.ReadAllBytes(item);
                     var written = Util.WriteHKX(Util.ReadHKX(item), Header);
 
-                    if (original.AsSpan().SequenceEqual(written)) identical++;
-                    else if (written.Length > original.Length) grew++;
-                    else if (written.Length < original.Length) shrank++;
-                    else sameLengthDiff++;
+                    if (original.AsSpan().SequenceEqual(written)) continue;
+
+                    var where = FirstDifference(original, written);
+                    failures.Add(item, original.Length != written.Length
+                        ? $"length changed, {original.Length} -> {written.Length} bytes (first difference at 0x{where:X})"
+                        : $"differs from offset 0x{where:X}");
                 }
                 catch (Exception ex)
                 {
@@ -160,17 +156,17 @@ namespace HKX2.Tests
                 }
             }
 
-            failures.AssertNone(files.Count, nameof(HkxRoundTripIsByteIdenticalForMostOfCorpus));
+            failures.AssertNone(files.Count, nameof(HkxRoundTripIsByteIdentical));
+        }
 
-            var ratio = (double)identical / files.Count;
-            Trace.WriteLine($"byte-identical {identical}/{files.Count} ({ratio:P2}); " +
-                            $"same-length differences {sameLengthDiff}, grew {grew}, shrank {shrank}");
+        private static int FirstDifference(byte[] a, byte[] b)
+        {
+            var shared = Math.Min(a.Length, b.Length);
+            for (var i = 0; i < shared; i++)
+                if (a[i] != b[i])
+                    return i;
 
-            Assert.IsTrue(ratio >= MinimumRatio,
-                $"Byte fidelity regressed: {identical}/{files.Count} ({ratio:P2}) files re-serialize " +
-                $"byte-identically, below the {MinimumRatio:P0} floor. " +
-                $"(same-length differences {sameLengthDiff}, grew {grew}, shrank {shrank}). " +
-                $"A large drop here usually means a reader is discarding data.");
+            return shared;
         }
 
         /// <summary>
