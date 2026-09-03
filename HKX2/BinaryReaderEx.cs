@@ -284,25 +284,13 @@ namespace HKX2
 
         #region Single
 
-        private float RoundSignle(float d)
-        {
-            var s = Math.Round(d - Math.Truncate(d), 6).ToString("F6");
-            s = s[(s.IndexOf(".") + 1)..];
-            s = $"{Math.Truncate(d):F0}.{s}";
-            return float.Parse(s);
-        }
-
         public float ReadSingle()
         {
-            // XXX: NaN(0xFFC0000) to 0.
-            // XXX: round? to 6 deciaml
+            // Floats are round-tripped bit-exactly: no rounding, and NaN is
+            // preserved (Havok stores NaN as a sentinel in some members).
             if (BigEndian)
-            {
-                var revVal = BitConverter.ToSingle(ReadReversedBytes(4), 0);
-                return float.IsNaN(revVal) ? 0 : (float)Math.Round(revVal, 6);
-            }
-            var val = br.ReadSingle();
-            return float.IsNaN(val) ? 0 : (float)Math.Round(val, 6);
+                return BitConverter.ToSingle(ReadReversedBytes(4), 0);
+            return br.ReadSingle();
         }
 
         public float AssertSingle(params float[] options)

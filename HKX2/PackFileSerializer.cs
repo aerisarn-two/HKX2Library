@@ -9,7 +9,7 @@ namespace HKX2
     public class PackFileSerializer
     {
         private int _currentLocalWriteQueue;
-        private int _currentSerializationQueue;
+        private List<IHavokObject> _discovered = new();
         private List<GlobalFixup> _globalFixups = new();
 
         private Dictionary<IHavokObject, uint> _globalLookup = new(ReferenceEqualityComparer.Instance);
@@ -17,12 +17,20 @@ namespace HKX2
 
         private List<LocalFixup> _localFixups = new();
         private List<Queue<Action>> _localWriteQueues = new();
-        private Dictionary<IHavokObject, List<uint>> _pendingGlobals = new(ReferenceEqualityComparer.Instance);
+        private Dictionary<IHavokObject, List<GlobalFixup>> _pendingGlobals = new(ReferenceEqualityComparer.Instance);
 
-        private HashSet<IHavokObject> _pendingVirtuals = new(ReferenceEqualityComparer.Instance);
-        private List<Queue<IHavokObject>> _serializationQueues = new();
+        // Where the writer currently is in Havok's member traversal. The last
+        // entry counts members at the current level; the entries before it are
+        // the positions of the enclosing arrays. Global fixups are ordered by
+        // this rather than by address, because Havok expands an array where the
+        // member sits while the payload bytes go after the object body.
+        private List<int> _path = new();
+        private int _objectIndex;
 
-        private HashSet<IHavokObject> _serializedObjects = new(ReferenceEqualityComparer.Instance);
+        // Set while walking an object purely to find what it references.
+        private bool _discovering;
+
+
         private List<VirtualFixup> _virtualFixups = new();
         private Dictionary<string, uint> _virtualLookup = new();
 
@@ -37,19 +45,6 @@ namespace HKX2
         {
             _currentLocalWriteQueue--;
         }
-
-        private void PushSerializationQueue()
-        {
-            _currentSerializationQueue++;
-            if (_currentSerializationQueue == _serializationQueues.Count)
-                _serializationQueues.Add(new Queue<IHavokObject>());
-        }
-
-        private void PopSerializationQueue()
-        {
-            _currentSerializationQueue--;
-        }
-
 
         public void Serialize(IHavokObject rootObject, BinaryWriterEx bw, HKXHeader header)
         {
@@ -66,11 +61,11 @@ namespace HKX2
             _virtualLookup = new Dictionary<string, uint>();
 
             _localWriteQueues = new List<Queue<Action>>();
-            _serializationQueues = new List<Queue<IHavokObject>>();
-            _pendingGlobals = new Dictionary<IHavokObject, List<uint>>(ReferenceEqualityComparer.Instance);
-            _pendingVirtuals = new HashSet<IHavokObject>(ReferenceEqualityComparer.Instance);
+            _pendingGlobals = new Dictionary<IHavokObject, List<GlobalFixup>>(ReferenceEqualityComparer.Instance);
+            _path = new List<int>();
+            _objectIndex = 0;
+            _discovering = false;
 
-            _serializedObjects = new HashSet<IHavokObject>(ReferenceEqualityComparer.Instance);
 
             // Memory stream for writing all the class definitions
             var classms = new MemoryStream();
@@ -95,79 +90,47 @@ namespace HKX2
             hkClassEnum.Write(classbw);
             hkClassEnumItem.Write(classbw);
 
-            _serializationQueues.Add(new Queue<IHavokObject>());
-            _serializationQueues[0].Enqueue(rootObject);
             _localWriteQueues.Add(new Queue<Action>());
-            _pendingVirtuals.Add(rootObject);
 
-            while (_serializationQueues.Count > 1 || _serializationQueues[0].Count > 0)
+            foreach (var obj in DepthFirstOrder(rootObject))
             {
-                var sq = _serializationQueues.Last();
-
-                while (sq != null && sq.Count == 0 && _serializationQueues.Count > 1)
+                var classname = obj.GetType().Name;
+                if (!_virtualLookup.ContainsKey(classname))
                 {
-                    _serializationQueues.RemoveAt(_serializationQueues.Count - 1);
-                    sq = _serializationQueues.Last();
-                }
-
-                if (sq.Count == 0) continue;
-
-                var obj = sq.Dequeue();
-                _currentSerializationQueue = _serializationQueues.Count - 1;
-
-                if (_serializedObjects.Contains(obj)) continue;
-
-                // See if we need to add virtual bookkeeping
-                if (_pendingVirtuals.Contains(obj))
-                {
-                    _pendingVirtuals.Remove(obj);
-                    var classname = obj.GetType().Name;
-                    if (!_virtualLookup.ContainsKey(classname))
+                    // Need to create a new class name entry and record the position
+                    var cname = new HKXClassName
                     {
-                        // Need to create a new class name entry and record the position
-                        var cname = new HKXClassName
-                        {
-                            ClassName = classname,
-                            Signature = obj.Signature
-                        };
-                        var offset = (uint)classbw.Position;
-                        cname.Write(classbw);
-                        _virtualLookup.Add(classname, offset + 5);
-                    }
-
-                    // Create a new Virtual fixup for this object
-                    var vfu = new VirtualFixup
-                    {
-                        Src = (uint)databw.Position,
-                        DstSectionIndex = 0,
-                        Dst = _virtualLookup[classname]
+                        ClassName = classname,
+                        Signature = obj.Signature
                     };
-                    _virtualFixups.Add(vfu);
-
-                    // See if we have any pending global references to this object
-                    if (_pendingGlobals.ContainsKey(obj))
-                    {
-                        // If so, create all the needed global fixups
-                        foreach (var src in _pendingGlobals[obj])
-                        {
-                            var gfu = new GlobalFixup
-                            {
-                                Src = src,
-                                DstSectionIndex = 2,
-                                Dst = (uint)databw.Position
-                            };
-                            _globalFixups.Add(gfu);
-                        }
-
-                        _pendingGlobals.Remove(obj);
-                    }
-
-                    // Add global lookup
-                    _globalLookup.Add(obj, (uint)databw.Position);
+                    var offset = (uint)classbw.Position;
+                    cname.Write(classbw);
+                    _virtualLookup.Add(classname, offset + 5);
                 }
+
+                // Create a new Virtual fixup for this object
+                var vfu = new VirtualFixup
+                {
+                    Src = (uint)databw.Position,
+                    DstSectionIndex = 0,
+                    Dst = _virtualLookup[classname]
+                };
+                _virtualFixups.Add(vfu);
+
+                // Fill in the destination of every reference made to this object
+                // before it was written.
+                if (_pendingGlobals.ContainsKey(obj))
+                {
+                    foreach (var gfu in _pendingGlobals[obj]) gfu.Dst = (uint)databw.Position;
+
+                    _pendingGlobals.Remove(obj);
+                }
+
+                _globalLookup.Add(obj, (uint)databw.Position);
+
+                _path = new List<int> { _objectIndex++, -1 };
 
                 obj.Write(this, databw);
-                _serializedObjects.Add(obj);
                 databw.Pad(16);
 
                 // Write local data (such as array contents and strings)
@@ -219,7 +182,7 @@ namespace HKX2
                 SectionTag = "__data__",
                 SectionData = datams.ToArray(),
                 LocalFixups = _localFixups.OrderBy(x => x.Dst).ToList(),
-                GlobalFixups = _globalFixups.OrderBy(x => x.Src).ToList(),
+                GlobalFixups = _globalFixups.OrderBy(x => x.TraversalKey, TraversalOrder.Instance).ToList(),
                 VirtualFixups = _virtualFixups,
                 ContentsVersionString = _header.ContentsVersionString
             };
@@ -266,17 +229,31 @@ namespace HKX2
 
             if (size <= 0) return;
 
+            if (_discovering)
+            {
+                foreach (var item in l) perElement.Invoke(item);
+                return;
+            }
+
+            var key = NextTraversalKey();
+
             var lfu = new LocalFixup { Src = src };
             _localFixups.Add(lfu);
             _localWriteQueues[_currentLocalWriteQueue].Enqueue(() =>
             {
                 bw.Pad(16);
                 lfu.Dst = (uint)bw.Position;
+                // The payload bytes land here, but the elements belong at the
+                // array member's position in the traversal, so restore it.
+                var saved = _path;
+                _path = new List<int>(key) { -1 };
+
                 // This ensures any writes the array elements may have are top priority
                 PushLocalWriteQueue();
                 foreach (var item in l) perElement.Invoke(item);
 
                 PopLocalWriteQueue();
+                _path = saved;
             });
             if (pad) _localWriteQueues[_currentLocalWriteQueue].Enqueue(() => { bw.Pad(16); });
         }
@@ -294,29 +271,129 @@ namespace HKX2
 
             if (d == null) return;
 
-            // If we're referencing an already serialized object, add a global ref
-            if (_globalLookup.ContainsKey(d))
+            if (_discovering)
             {
-                var gfu = new GlobalFixup { Src = pos, DstSectionIndex = 2, Dst = _globalLookup[d] };
-                _globalFixups.Add(gfu);
+                _discovered.Add(d);
                 return;
             }
-            // Otherwise need to add a pending reference and mark the object for serialization
 
-            if (!_pendingGlobals.ContainsKey(d))
+            var gfu = new GlobalFixup
             {
-                _pendingGlobals.Add(d, new List<uint>());
-                PushSerializationQueue();
-                _serializationQueues[_currentSerializationQueue].Enqueue(d);
-                PopSerializationQueue();
-                _pendingVirtuals.Add(d);
+                Src = pos,
+                DstSectionIndex = 2,
+                TraversalKey = NextTraversalKey()
+            };
+            _globalFixups.Add(gfu);
+
+            // If we're referencing an already serialized object the destination
+            // is known; otherwise it is filled in once the object is written.
+            if (_globalLookup.ContainsKey(d))
+            {
+                gfu.Dst = _globalLookup[d];
+                return;
             }
 
-            _pendingGlobals[d].Add(pos);
+            if (!_pendingGlobals.TryGetValue(d, out var pending))
+            {
+                pending = new List<GlobalFixup>();
+                _pendingGlobals.Add(d, pending);
+            }
+
+            pending.Add(gfu);
         }
+
+        // Havok writes objects in the order a depth-first walk reaches them: an
+        // object, then everything reachable through its first reference, then
+        // everything through its second, and so on.
+        //
+        // This has to be worked out before writing anything, because it cannot be
+        // observed during the write. Array payloads are written after the object
+        // body, so a reference from inside an array would be reached after one
+        // from a member declared later, and the order would come out wrong.
+        private List<IHavokObject> DepthFirstOrder(IHavokObject root)
+        {
+            var order = new List<IHavokObject>();
+            var seen = new HashSet<IHavokObject>(ReferenceEqualityComparer.Instance);
+            var pending = new Stack<IHavokObject>();
+
+            pending.Push(root);
+
+            while (pending.Count > 0)
+            {
+                var obj = pending.Pop();
+                if (!seen.Add(obj)) continue;
+
+                order.Add(obj);
+
+                // Pushed in reverse so the first reference is visited first.
+                var refs = ReferencesOf(obj);
+                for (var i = refs.Count - 1; i >= 0; i--) pending.Push(refs[i]);
+            }
+
+            return order;
+        }
+
+        // The objects an object refers to, in the order Havok's member traversal
+        // reaches them: members in order, with arrays expanded where they sit.
+        // Nothing is recorded - the bytes go to a scratch buffer and no fixup is
+        // created; the real write does all of that later.
+        private List<IHavokObject> ReferencesOf(IHavokObject obj)
+        {
+            var savedDiscovered = _discovered;
+            var savedQueue = _currentLocalWriteQueue;
+
+            _discovered = new List<IHavokObject>();
+            _discovering = true;
+            try
+            {
+                obj.Write(this, new BinaryWriterEx(
+                    _header.Endian == 0, _header.PointerSize == 8, new MemoryStream()));
+                return _discovered;
+            }
+            finally
+            {
+                _discovering = false;
+                _discovered = savedDiscovered;
+                _currentLocalWriteQueue = savedQueue;
+            }
+        }
+
+        private int[] NextTraversalKey()
+        {
+            _path[^1]++;
+            return _path.ToArray();
+        }
+
+        // Orders references the way Havok walks them: by member position, with an
+        // array's elements sitting under the position of the array member itself.
+        private sealed class TraversalOrder : IComparer<int[]>
+        {
+            public static readonly TraversalOrder Instance = new();
+
+            public int Compare(int[]? a, int[]? b)
+            {
+                var shared = Math.Min(a!.Length, b!.Length);
+                for (var i = 0; i < shared; i++)
+                {
+                    var c = a[i].CompareTo(b[i]);
+                    if (c != 0) return c;
+                }
+
+                return a.Length.CompareTo(b.Length);
+            }
+        }
+
+        // Mark an object for serialization without writing a pointer to it yet.
+        // Object visit order decides the __classnames__ table and the order of
+        // the fixup tables, so it has to be established at the member's position
+        // in the traversal, not whenever the bytes happen to be written.
 
         public void WriteClassPointerArray<T>(BinaryWriterEx bw, IList<T> d) where T : IHavokObject
         {
+            // Havok expands an array where the member sits, so its elements are
+            // visited, and their fixup entries reserved, before any member that
+            // follows. The payload bytes are still written after the object body;
+            // only the ordering moves.
             WriteArrayBase(bw, d, e => WriteClassPointer(bw, e));
         }
 
@@ -327,6 +404,7 @@ namespace HKX2
             bw.WriteUSize(0);
 
             if (d == null) return;
+            if (_discovering) return;
 
             var lfu = new LocalFixup { Src = src };
             _localFixups.Add(lfu);
@@ -347,6 +425,7 @@ namespace HKX2
             bw.WriteUSize(0);
 
             if (d == null || d == "" || d == "\u2400") return;
+            if (_discovering) return;
 
             var lfu = new LocalFixup { Src = src };
             _localFixups.Add(lfu);
@@ -534,19 +613,19 @@ namespace HKX2
             bw.WriteSingle(d.M11);
             bw.WriteSingle(d.M12);
             bw.WriteSingle(d.M13);
-            bw.WriteSingle(0.0f); //bw.WriteSingle(d.M14);
+            bw.WriteSingle(d.M14);
             bw.WriteSingle(d.M21);
             bw.WriteSingle(d.M22);
             bw.WriteSingle(d.M23);
-            bw.WriteSingle(0.0f); //bw.WriteSingle(d.M24);
+            bw.WriteSingle(d.M24);
             bw.WriteSingle(d.M31);
             bw.WriteSingle(d.M32);
             bw.WriteSingle(d.M33);
-            bw.WriteSingle(0.0f); //bw.WriteSingle(d.M34);
+            bw.WriteSingle(d.M34);
             bw.WriteSingle(d.M41);
             bw.WriteSingle(d.M42);
             bw.WriteSingle(d.M43);
-            bw.WriteSingle(1.0f); //bw.WriteSingle(d.M44);
+            bw.WriteSingle(d.M44);
         }
 
         public void WriteTransformArray(BinaryWriterEx bw, IList<Matrix4x4> d)

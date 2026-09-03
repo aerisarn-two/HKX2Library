@@ -228,6 +228,13 @@ namespace HKX2
         {
         }
 
+        /// <summary>
+        /// Where this reference sits in Havok's member traversal, as the chain of
+        /// member positions leading to it. Used only to order the fixup table on
+        /// write; it is not part of the file format.
+        /// </summary>
+        internal int[] TraversalKey { get; set; } = Array.Empty<int>();
+
         internal GlobalFixup(BinaryReaderEx br)
         {
             Src = br.ReadUInt32();

@@ -208,13 +208,18 @@ namespace HKX2
             br.AssertUSize(0);
 
             // Do a local fixup lookup
-            if (!_dataSection._localMap.ContainsKey(key)) return string.Empty;
+            // No fixup means a null pointer. Returning string.Empty here would
+            // be written back out as a real empty string by WriteStringPointer.
+            if (!_dataSection._localMap.ContainsKey(key)) return null;
 
             var f = _dataSection._localMap[key];
             br.StepIn(f.Dst);
             var ret = br.ReadASCII();
             br.StepOut();
-            return ret.Trim();
+            // No trimming: ReadASCII already stops at the terminator, so any
+            // surrounding whitespace is part of the string. Vanilla animation
+            // annotations such as "FootBack\r\n" rely on that.
+            return ret;
         }
 
         public List<string> ReadStringPointerArray(BinaryReaderEx br)
@@ -375,12 +380,7 @@ namespace HKX2
                 br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle(),
                 br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle(),
                 br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle(),
-                0, 0, 0, 0)
-            {
-                M14 = 0,
-                M24 = 0,
-                M34 = 0
-            };
+                0, 0, 0, 0);
             return mat3;
         }
 
@@ -409,13 +409,7 @@ namespace HKX2
                 br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle(),
                 br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle(),
                 br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle(),
-                br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle())
-            {
-                M14 = 0,
-                M24 = 0,
-                M34 = 0,
-                M44 = 1
-            };
+                br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle());
 
             return transform;
         }
@@ -431,11 +425,7 @@ namespace HKX2
                 br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle(),
                 br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle(),
                 br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle(),
-                0, 0, 0, 0)
-            {
-                M14 = 0,
-                M34 = 0,
-            };
+                0, 0, 0, 0);
 
             return qsTransform;
         }
