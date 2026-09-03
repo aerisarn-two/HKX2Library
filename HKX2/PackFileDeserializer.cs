@@ -377,12 +377,7 @@ namespace HKX2
                 br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle(),
                 br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle(),
                 br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle(),
-                0, 0, 0, 0)
-            {
-                M14 = 0,
-                M24 = 0,
-                M34 = 0
-            };
+                0, 0, 0, 0);
             return mat3;
         }
 
@@ -411,13 +406,7 @@ namespace HKX2
                 br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle(),
                 br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle(),
                 br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle(),
-                br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle())
-            {
-                M14 = 0,
-                M24 = 0,
-                M34 = 0,
-                M44 = 1
-            };
+                br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle());
 
             return transform;
         }
@@ -433,11 +422,7 @@ namespace HKX2
                 br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle(),
                 br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle(),
                 br.ReadSingle(), br.ReadSingle(), br.ReadSingle(), br.ReadSingle(),
-                0, 0, 0, 0)
-            {
-                M14 = 0,
-                M34 = 0,
-            };
+                0, 0, 0, 0);
 
             return qsTransform;
         }

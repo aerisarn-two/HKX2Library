@@ -1,3 +1,6 @@
+using System.Numerics;
+using System.Xml.Linq;
+
 namespace HKX2.Tests
 {
     /// <summary>
@@ -67,6 +70,47 @@ namespace HKX2.Tests
             var read = new BinaryReaderEx(ms.ToArray()).ReadSingle();
 
             Assert.IsTrue(float.IsNaN(read), $"NaN was not preserved (got {read:R})");
+        }
+
+        /// <summary>
+        /// Whatever xml does carry, it must carry exactly. The xml layer wrote
+        /// floats with "F6", which quantised every value to six decimals. That was
+        /// invisible while ReadSingle rounded to six decimals as well, and became
+        /// 6417 failing files the moment binary reads were made exact.
+        /// </summary>
+        [TestMethod]
+        public void SingleRoundTripsThroughXmlBitExactly()
+        {
+            foreach (var value in TrickyFloats)
+            {
+                if (float.IsInfinity(value)) continue; // not representable in the xml text form
+
+                var xe = new XElement("hkobject");
+                new XmlSerializer().WriteFloat(xe, "m_value", value);
+
+                var read = new XmlDeserializer().ReadSingle(xe, "m_value");
+
+                Assert.AreEqual(
+                    BitConverter.SingleToUInt32Bits(value),
+                    BitConverter.SingleToUInt32Bits(read),
+                    $"float {value:R} did not survive xml bit-exactly (got {read:R})");
+            }
+        }
+
+        /// <summary>
+        /// Vector4 carries all four lanes in xml, so all four must be exact.
+        /// </summary>
+        [TestMethod]
+        public void Vector4RoundTripsThroughXmlBitExactly()
+        {
+            var value = new Vector4(1f / 3f, 1e-8f, -0.5195284485816956f, 13.5894165f);
+
+            var xe = new XElement("hkobject");
+            new XmlSerializer().WriteVector4(xe, "m_value", value);
+
+            var read = new XmlDeserializer().ReadVector4(xe, "m_value");
+
+            Assert.AreEqual(value, read, $"Vector4 did not survive xml bit-exactly: {value} -> {read}");
         }
 
         /// <summary>

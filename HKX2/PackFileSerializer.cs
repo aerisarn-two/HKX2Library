@@ -534,19 +534,19 @@ namespace HKX2
             bw.WriteSingle(d.M11);
             bw.WriteSingle(d.M12);
             bw.WriteSingle(d.M13);
-            bw.WriteSingle(0.0f); //bw.WriteSingle(d.M14);
+            bw.WriteSingle(d.M14);
             bw.WriteSingle(d.M21);
             bw.WriteSingle(d.M22);
             bw.WriteSingle(d.M23);
-            bw.WriteSingle(0.0f); //bw.WriteSingle(d.M24);
+            bw.WriteSingle(d.M24);
             bw.WriteSingle(d.M31);
             bw.WriteSingle(d.M32);
             bw.WriteSingle(d.M33);
-            bw.WriteSingle(0.0f); //bw.WriteSingle(d.M34);
+            bw.WriteSingle(d.M34);
             bw.WriteSingle(d.M41);
             bw.WriteSingle(d.M42);
             bw.WriteSingle(d.M43);
-            bw.WriteSingle(1.0f); //bw.WriteSingle(d.M44);
+            bw.WriteSingle(d.M44);
         }
 
         public void WriteTransformArray(BinaryWriterEx bw, IList<Matrix4x4> d)

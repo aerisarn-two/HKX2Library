@@ -41,10 +41,24 @@ namespace HKX2.Tests
         }
 
         /// <summary>
-        /// hkx -> object graph -> xml -> object graph must produce an equal graph.
+        /// The xml representation must be a fixpoint: everything xml is able to
+        /// express has to survive being read back and written again.
+        ///
+        /// This deliberately compares the xml documents rather than the object
+        /// graphs. Havok's xml writer composes every matrix type out of just two
+        /// group formats, "(%f %f %f)" and "(%f %f %f %f)", so hkMatrix3 is
+        /// written as 9 floats, hkQsTransform as 10 and hkTransform as 12. The
+        /// unused w lane of each 3-float group is simply not in the format, and a
+        /// round trip through Havok itself drops it too. Demanding an equal object
+        /// graph would be demanding something xml cannot represent.
+        ///
+        /// Comparing documents tolerates that omission while still catching any
+        /// value xml does carry being mangled. Precision, which this check cannot
+        /// see because a lossy format is lossy in both directions, is pinned
+        /// separately by PrimitiveRoundTripTests.
         /// </summary>
         [TestMethod]
-        public void HkxToXmlToHkxDeepCompare()
+        public void XmlRoundTripIsStable()
         {
             var files = Corpus.RequireFiles();
             var failures = new FailureLog();
@@ -53,16 +67,13 @@ namespace HKX2.Tests
             {
                 try
                 {
-                    var root = (hkRootLevelContainer)Util.ReadHKX(item);
+                    var first = ToXml((hkRootLevelContainer)Util.ReadHKX(item));
 
-                    MemoryStream ms = new();
-                    Util.WriteXml(root, Header, ms);
-                    ms.Position = 0;
+                    MemoryStream ms = new(first);
+                    var second = ToXml((hkRootLevelContainer)Util.ReadXml(ms, Header));
 
-                    var root2 = (hkRootLevelContainer)Util.ReadXml(ms, Header);
-
-                    if (!root.Equals(root2))
-                        failures.Add(item, "deep compare failed after xml round trip");
+                    if (!first.AsSpan().SequenceEqual(second))
+                        failures.Add(item, $"xml changed on the second pass ({first.Length} vs {second.Length} bytes)");
                 }
                 catch (Exception ex)
                 {
@@ -70,7 +81,14 @@ namespace HKX2.Tests
                 }
             }
 
-            failures.AssertNone(files.Count, nameof(HkxToXmlToHkxDeepCompare));
+            failures.AssertNone(files.Count, nameof(XmlRoundTripIsStable));
+        }
+
+        private static byte[] ToXml(hkRootLevelContainer root)
+        {
+            MemoryStream ms = new();
+            Util.WriteXml(root, Header, ms);
+            return ms.ToArray();
         }
 
         /// <summary>
@@ -107,10 +125,9 @@ namespace HKX2.Tests
         /// Re-serializing a vanilla file should reproduce it byte for byte.
         ///
         /// This does not hold for the whole corpus: the library emits the
-        /// __classnames__ table in its own order, and normalizes the unused
-        /// padding lanes of hkTransform / hkQsTransform. Those are layout
-        /// differences, not data loss, and reaching 100% would mean reproducing
-        /// Havok's exact class ordering.
+        /// __classnames__ table, and the objects within the data section, in its
+        /// own order rather than Havok's. That is a layout difference, not data
+        /// loss, and closing it means reproducing Havok's exact ordering.
         ///
         /// So this is a ratchet rather than an equality check. It exists to catch
         /// read-side data loss, which is otherwise invisible to the deep-compare
@@ -121,7 +138,7 @@ namespace HKX2.Tests
         [TestMethod]
         public void HkxRoundTripIsByteIdenticalForMostOfCorpus()
         {
-            const double MinimumRatio = 0.90;
+            const double MinimumRatio = 0.95;
 
             var files = Corpus.RequireFiles();
             int identical = 0, grew = 0, shrank = 0, sameLengthDiff = 0;
