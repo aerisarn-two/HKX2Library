@@ -124,10 +124,8 @@ namespace HKX2.Tests
         /// <summary>
         /// Re-serializing a vanilla file should reproduce it byte for byte.
         ///
-        /// This does not hold for the whole corpus: the library emits the
-        /// __classnames__ table, and the objects within the data section, in its
-        /// own order rather than Havok's. That is a layout difference, not data
-        /// loss, and closing it means reproducing Havok's exact ordering.
+        /// It does not quite hold for the whole corpus: a handful of files still
+        /// differ in layout rather than in data.
         ///
         /// So this is a ratchet rather than an equality check. It exists to catch
         /// read-side data loss, which is otherwise invisible to the deep-compare
@@ -138,7 +136,7 @@ namespace HKX2.Tests
         [TestMethod]
         public void HkxRoundTripIsByteIdenticalForMostOfCorpus()
         {
-            const double MinimumRatio = 0.95;
+            const double MinimumRatio = 0.99;
 
             var files = Corpus.RequireFiles();
             int identical = 0, grew = 0, shrank = 0, sameLengthDiff = 0;

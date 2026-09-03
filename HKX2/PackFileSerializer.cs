@@ -17,7 +17,7 @@ namespace HKX2
 
         private List<LocalFixup> _localFixups = new();
         private List<Queue<Action>> _localWriteQueues = new();
-        private Dictionary<IHavokObject, List<uint>> _pendingGlobals = new(ReferenceEqualityComparer.Instance);
+        private Dictionary<IHavokObject, List<GlobalFixup>> _pendingGlobals = new(ReferenceEqualityComparer.Instance);
 
         private HashSet<IHavokObject> _pendingVirtuals = new(ReferenceEqualityComparer.Instance);
         private List<Queue<IHavokObject>> _serializationQueues = new();
@@ -67,7 +67,7 @@ namespace HKX2
 
             _localWriteQueues = new List<Queue<Action>>();
             _serializationQueues = new List<Queue<IHavokObject>>();
-            _pendingGlobals = new Dictionary<IHavokObject, List<uint>>(ReferenceEqualityComparer.Instance);
+            _pendingGlobals = new Dictionary<IHavokObject, List<GlobalFixup>>(ReferenceEqualityComparer.Instance);
             _pendingVirtuals = new HashSet<IHavokObject>(ReferenceEqualityComparer.Instance);
 
             _serializedObjects = new HashSet<IHavokObject>(ReferenceEqualityComparer.Instance);
@@ -144,20 +144,12 @@ namespace HKX2
                     };
                     _virtualFixups.Add(vfu);
 
-                    // See if we have any pending global references to this object
+                    // Fill in the destination of every reference to this object.
+                    // The entries were reserved in traversal order when the
+                    // pointers were reached, so their position is already fixed.
                     if (_pendingGlobals.ContainsKey(obj))
                     {
-                        // If so, create all the needed global fixups
-                        foreach (var src in _pendingGlobals[obj])
-                        {
-                            var gfu = new GlobalFixup
-                            {
-                                Src = src,
-                                DstSectionIndex = 2,
-                                Dst = (uint)databw.Position
-                            };
-                            _globalFixups.Add(gfu);
-                        }
+                        foreach (var gfu in _pendingGlobals[obj]) gfu.Dst = (uint)databw.Position;
 
                         _pendingGlobals.Remove(obj);
                     }
@@ -219,7 +211,7 @@ namespace HKX2
                 SectionTag = "__data__",
                 SectionData = datams.ToArray(),
                 LocalFixups = _localFixups.OrderBy(x => x.Dst).ToList(),
-                GlobalFixups = _globalFixups.OrderBy(x => x.Src).ToList(),
+                GlobalFixups = _globalFixups,
                 VirtualFixups = _virtualFixups,
                 ContentsVersionString = _header.ContentsVersionString
             };
@@ -288,36 +280,82 @@ namespace HKX2
 
         public void WriteClassPointer<T>(BinaryWriterEx bw, T? d) where T : IHavokObject
         {
+            WriteClassPointer(bw, d, null);
+        }
+
+        private void WriteClassPointer<T>(BinaryWriterEx bw, T? d, GlobalFixup? reserved) where T : IHavokObject
+        {
             PadToPointerSizeIfPaddingOption(bw);
             var pos = (uint)bw.Position;
             bw.WriteUSize(0);
 
             if (d == null) return;
 
-            // If we're referencing an already serialized object, add a global ref
+            // A direct pointer takes its place in the table here, which is the
+            // member's position in the traversal. An array element was already
+            // given its place when the array member was reached.
+            var gfu = reserved;
+            if (gfu is null)
+            {
+                gfu = new GlobalFixup { DstSectionIndex = 2 };
+                _globalFixups.Add(gfu);
+            }
+
+            gfu.Src = pos;
+
+            // If we're referencing an already serialized object the destination
+            // is known; otherwise it is filled in once the object is written.
             if (_globalLookup.ContainsKey(d))
             {
-                var gfu = new GlobalFixup { Src = pos, DstSectionIndex = 2, Dst = _globalLookup[d] };
-                _globalFixups.Add(gfu);
+                gfu.Dst = _globalLookup[d];
                 return;
             }
-            // Otherwise need to add a pending reference and mark the object for serialization
 
-            if (!_pendingGlobals.ContainsKey(d))
-            {
-                _pendingGlobals.Add(d, new List<uint>());
-                PushSerializationQueue();
-                _serializationQueues[_currentSerializationQueue].Enqueue(d);
-                PopSerializationQueue();
-                _pendingVirtuals.Add(d);
-            }
+            QueueForSerialization(d);
 
-            _pendingGlobals[d].Add(pos);
+            _pendingGlobals[d].Add(gfu);
+        }
+
+        // Mark an object for serialization without writing a pointer to it yet.
+        // Object visit order decides the __classnames__ table and the order of
+        // the fixup tables, so it has to be established at the member's position
+        // in the traversal, not whenever the bytes happen to be written.
+        private void QueueForSerialization<T>(T? d) where T : IHavokObject
+        {
+            if (d is null) return;
+            if (_globalLookup.ContainsKey(d)) return;
+            if (_pendingGlobals.ContainsKey(d)) return;
+
+            _pendingGlobals.Add(d, new List<GlobalFixup>());
+            PushSerializationQueue();
+            _serializationQueues[_currentSerializationQueue].Enqueue(d);
+            PopSerializationQueue();
+            _pendingVirtuals.Add(d);
         }
 
         public void WriteClassPointerArray<T>(BinaryWriterEx bw, IList<T> d) where T : IHavokObject
         {
-            WriteArrayBase(bw, d, e => WriteClassPointer(bw, e));
+            // Havok expands an array where the member sits, so its elements are
+            // visited, and their fixup entries reserved, before any member that
+            // follows. The payload bytes are still written after the object body;
+            // only the ordering moves.
+            var reserved = new List<GlobalFixup?>(d.Count);
+            foreach (var e in d)
+            {
+                if (e is null)
+                {
+                    reserved.Add(null);
+                    continue;
+                }
+
+                QueueForSerialization(e);
+                var gfu = new GlobalFixup { DstSectionIndex = 2 };
+                _globalFixups.Add(gfu);
+                reserved.Add(gfu);
+            }
+
+            var next = 0;
+            WriteArrayBase(bw, d, e => WriteClassPointer(bw, e, reserved[next++]));
         }
 
         public void WriteStringPointer(BinaryWriterEx bw, string d, int padding = 16)
